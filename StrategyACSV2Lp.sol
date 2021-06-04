@@ -1891,6 +1891,10 @@ contract StrategyACSV2Lp is StrategyBase {
     }
 
     function deposit() public override nonReentrant {
+        _deposit();
+    }
+
+    function _deposit() internal {
         address _acsVault = acsVault;
         uint256 _baseBal = IERC20(baseToken).balanceOf(address(this));
         if (_baseBal > 0) {
@@ -1964,7 +1968,7 @@ contract StrategyACSV2Lp is StrategyBase {
                 uint256 _compound = _after.sub(_before);
                 vault.addNewCompound(_compound, blocksToReleaseCompound);
             }
-            deposit();
+            _deposit();
         }
     }
 

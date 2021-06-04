@@ -867,6 +867,8 @@ interface IVaultMaster {
     event UpdateController(address controller, bool isAdd);
     event UpdateStrategy(address strategy, bool isAdd);
 
+    function bankMaster() external view returns (address);
+
     function bank(address) external view returns (address);
 
     function isVault(address) external view returns (bool);
@@ -986,7 +988,7 @@ abstract contract VaultBase is ERC20UpgradeSafe, IVault {
      * @dev Throws if called by a not-whitelisted contract while we do not accept contract depositor.
      */
     modifier checkContract(address _account) {
-        if (!acceptContractDepositor && !whitelistedContract[_account] && (_account != vaultMaster.bank(address(this)))) {
+        if (!acceptContractDepositor && !whitelistedContract[_account] && _account != vaultMaster.bank(address(this)) && _account != vaultMaster.bankMaster()) {
             require(_account == tx.origin, "contract not support");
         }
         _;
@@ -1192,14 +1194,14 @@ abstract contract VaultBase is ERC20UpgradeSafe, IVault {
 
     function harvestStrategy(address _strategy) external override _non_reentrant_ {
         if (!openHarvest) {
-            require(msg.sender == governance || msg.sender == vaultMaster.bank(address(this)), "!governance && !bank");
+            require(msg.sender == governance || msg.sender == vaultMaster.bank(address(this)) || msg.sender == vaultMaster.bankMaster(), "!governance && !bank");
         }
         IController(controller).harvestStrategy(_strategy);
     }
 
     function harvestAllStrategies() external override _non_reentrant_ {
         if (!openHarvest) {
-            require(msg.sender == governance || msg.sender == vaultMaster.bank(address(this)), "!governance && !bank");
+            require(msg.sender == governance || msg.sender == vaultMaster.bank(address(this)) || msg.sender == vaultMaster.bankMaster(), "!governance && !bank");
         }
         IController(controller).harvestAllStrategies();
         lastHarvestAllTimeStamp = block.timestamp;

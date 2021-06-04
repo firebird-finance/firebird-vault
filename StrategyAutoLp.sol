@@ -1877,6 +1877,10 @@ contract StrategyAutoLp is StrategyBase {
     }
 
     function deposit() public override nonReentrant {
+        _deposit();
+    }
+
+    function _deposit() internal {
         uint256 _baseBal = IERC20(baseToken).balanceOf(address(this));
         if (_baseBal > 0) {
             IAutoFarmV2(autoFarm).deposit(poolId, _baseBal);
@@ -1928,7 +1932,7 @@ contract StrategyAutoLp is StrategyBase {
                 uint256 _compound = _after.sub(_before);
                 vault.addNewCompound(_compound, blocksToReleaseCompound);
             }
-            deposit();
+            _deposit();
         }
     }
 

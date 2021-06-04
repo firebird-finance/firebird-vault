@@ -396,6 +396,8 @@ interface IVaultMaster {
     event UpdateController(address controller, bool isAdd);
     event UpdateStrategy(address strategy, bool isAdd);
 
+    function bankMaster() external view returns (address);
+
     function bank(address) external view returns (address);
 
     function isVault(address) external view returns (bool);
@@ -431,6 +433,7 @@ contract VaultMaster is IVaultMaster {
     uint256 public override gasFee = 0; // 0% at start and can be set by governance decision
     uint256 public override withdrawalProtectionFee = 0; // % of withdrawal go back to vault (for auto-compounding) to protect withdrawals
 
+    address public override bankMaster; //use this for all strategy
     mapping(address => address) public override bank;
     mapping(address => bool) public override isVault;
     mapping(address => bool) public override isController;
@@ -449,6 +452,11 @@ contract VaultMaster is IVaultMaster {
 
     function setGovernance(address _governance) external onlyGovernance {
         governance = _governance;
+    }
+
+    function setBankMaster(address _bankMaster) public onlyGovernance {
+        bankMaster = _bankMaster;
+        emit UpdateBank(_bankMaster, address(0));
     }
 
     function setBank(address _vault, address _bank) public onlyGovernance {

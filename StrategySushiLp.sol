@@ -1868,6 +1868,10 @@ contract StrategySushiLp is StrategyBase {
     }
 
     function deposit() public override nonReentrant {
+        _deposit();
+    }
+
+    function _deposit() internal {
         uint256 _baseBal = IERC20(baseToken).balanceOf(address(this));
         if (_baseBal > 0) {
             ICakeMasterChef(farmPool).deposit(poolId, _baseBal);
@@ -1921,7 +1925,7 @@ contract StrategySushiLp is StrategyBase {
                 uint256 _compound = _after.sub(_before);
                 vault.addNewCompound(_compound, blocksToReleaseCompound);
             }
-            deposit();
+            _deposit();
         }
     }
 
