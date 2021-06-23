@@ -641,6 +641,99 @@ contract ReentrancyGuard {
     }
 }
 
+/**
+ * @title Initializable
+ *
+ * @dev Helper contract to support initializer functions. To use it, replace
+ * the constructor with a function that has the `initializer` modifier.
+ * WARNING: Unlike constructors, initializer functions must be manually
+ * invoked. This applies both to deploying an Initializable contract, as well
+ * as extending an Initializable contract via inheritance.
+ * WARNING: When used with inheritance, manual care must be taken to not invoke
+ * a parent initializer twice, or ensure that all initializers are idempotent,
+ * because this is not dealt with automatically as with constructors.
+ */
+contract Initializable {
+    /**
+     * @dev Indicates that the contract has been initialized.
+     */
+    bool private initialized;
+
+    /**
+     * @dev Indicates that the contract is in the process of being initialized.
+     */
+    bool private initializing;
+
+    /**
+     * @dev Modifier to use in the initializer function of a contract.
+     */
+    modifier initializer() {
+        require(initializing || isConstructor() || !initialized, "Contract instance has already been initialized");
+
+        bool isTopLevelCall = !initializing;
+        if (isTopLevelCall) {
+            initializing = true;
+            initialized = true;
+        }
+
+        _;
+
+        if (isTopLevelCall) {
+            initializing = false;
+        }
+    }
+
+    /// @dev Returns true if and only if the function is running in the constructor
+    function isConstructor() private view returns (bool) {
+        // extcodesize checks the size of the code stored in an address, and
+        // address returns the current address. Since the code is still not
+        // deployed when running a constructor, any checks on its code size will
+        // yield zero, making it an effective way to detect if a contract is
+        // under construction or not.
+        address self = address(this);
+        uint256 cs;
+        assembly {
+            cs := extcodesize(self)
+        }
+        return cs == 0;
+    }
+
+    // Reserved storage space to allow for layout changes in the future.
+    uint256[50] private ______gap;
+}
+
+/*
+ * @dev Provides information about the current execution context, including the
+ * sender of the transaction and its data. While these are generally available
+ * via msg.sender and msg.data, they should not be accessed in such a direct
+ * manner, since when dealing with GSN meta-transactions the account sending and
+ * paying for execution may not be the actual sender (as far as an application
+ * is concerned).
+ *
+ * This contract is only required for intermediate, library-like contracts.
+ */
+contract ContextUpgradeSafe is Initializable {
+    // Empty internal constructor, to prevent people from mistakenly deploying
+    // an instance of this contract, which should be used via inheritance.
+
+    function __Context_init() internal initializer {
+        __Context_init_unchained();
+    }
+
+    function __Context_init_unchained() internal initializer {}
+
+    function _msgSender() internal view virtual returns (address payable) {
+        return msg.sender;
+    }
+
+    function _msgData() internal view virtual returns (bytes memory) {
+        this; // silence state mutability warning without generating bytecode - see https://github.com/ethereum/solidity/issues/2691
+        return msg.data;
+    }
+
+    uint256[50] private __gap;
+}
+
 interface IUniswapV2Router {
     function factory() external pure returns (address);
 
@@ -919,7 +1012,6 @@ interface IVault {
     function deposit(uint256 _amount, uint256 _min_mint_amount) external returns (uint256);
 
     function depositFor(
-        address _account,
         address _to,
         uint256 _amount,
         uint256 _min_mint_amount
@@ -980,6 +1072,8 @@ interface IVaultMaster {
     event UpdateVault(address vault, bool isAdd);
     event UpdateController(address controller, bool isAdd);
     event UpdateStrategy(address strategy, bool isAdd);
+
+    function bankMaster() external view returns (address);
 
     function bank(address) external view returns (address);
 
@@ -1385,13 +1479,13 @@ interface IStrategy {
  Where possible, strategies must remain as immutable as possible, instead of updating variables, we update the contract by linking it in the controller
 
 */
-abstract contract StrategyBase is IStrategy, ReentrancyGuard {
+abstract contract StrategyBase is IStrategy, ReentrancyGuard, Initializable {
     using SafeERC20 for IERC20;
     using Address for address;
     using SafeMath for uint256;
 
-    IUniswapV2Router public unirouter = IUniswapV2Router(0x10ED43C718714eb63d5aA57B78B54704E256024E);
-    IFirebirdRouter public firebirdRouter = IFirebirdRouter(0xb7e19a1188776f32E8C2B790D9ca578F2896Da7C);
+    IUniswapV2Router public unirouter = IUniswapV2Router(0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506);
+    IFirebirdRouter public firebirdRouter = IFirebirdRouter(0xF6fa9Ea1f64f1BBfA8d71f7f43fAF6D45520bfac);
 
     address public override baseToken;
     address public farmingToken;
@@ -1399,7 +1493,7 @@ abstract contract StrategyBase is IStrategy, ReentrancyGuard {
     address public targetProfitToken; // compoundToken -> profit
 
     address public governance;
-    address public timelock = address(0x36fcf1c1525854b2d195F5d03d483f01549e06f2);
+    address public timelock = address(0xe59511c0eF42FB3C419Ac2651406b7b8822328E1);
 
     address public controller;
     address public strategist;
@@ -1412,7 +1506,6 @@ abstract contract StrategyBase is IStrategy, ReentrancyGuard {
 
     uint256 public performanceFee = 0; //1400 <-> 14.0%
     uint256 public lastHarvestTimeStamp;
-    bool internal _initialized = false;
 
     uint256 public slippageFactor = 950; // 5% default slippage tolerance
 
@@ -1423,6 +1516,7 @@ abstract contract StrategyBase is IStrategy, ReentrancyGuard {
         address _targetCompoundToken,
         address _targetProfitToken
     ) internal {
+        timelock = address(0xe59511c0eF42FB3C419Ac2651406b7b8822328E1);
         baseToken = _baseToken;
         farmingToken = _farmingToken;
         targetCompoundToken = _targetCompoundToken;
@@ -1448,6 +1542,11 @@ abstract contract StrategyBase is IStrategy, ReentrancyGuard {
         }
     }
 
+    modifier onlyTimelock() {
+        require(msg.sender == timelock, "!timelock");
+        _;
+    }
+
     modifier onlyGovernance() {
         require(msg.sender == governance, "!governance");
         _;
@@ -1469,11 +1568,11 @@ abstract contract StrategyBase is IStrategy, ReentrancyGuard {
         IERC20 _token,
         address _spender,
         uint256 _amount
-    ) external onlyGovernance {
+    ) external onlyTimelock {
         _token.safeApprove(_spender, _amount);
     }
 
-    function setUnirouter(IUniswapV2Router _unirouter) external onlyGovernance {
+    function setUnirouter(IUniswapV2Router _unirouter) external onlyTimelock {
         if (address(unirouter) != address(0)) {
             if (farmingToken != address(0)) {
                 IERC20(farmingToken).safeApprove(address(unirouter), 0);
@@ -1494,7 +1593,7 @@ abstract contract StrategyBase is IStrategy, ReentrancyGuard {
         }
     }
 
-    function setFirebirdRouter(IFirebirdRouter _firebirdRouter) external onlyGovernance {
+    function setFirebirdRouter(IFirebirdRouter _firebirdRouter) external onlyTimelock {
         if (address(firebirdRouter) != address(0)) {
             if (farmingToken != address(0)) {
                 IERC20(farmingToken).safeApprove(address(firebirdRouter), 0);
@@ -1715,8 +1814,7 @@ abstract contract StrategyBase is IStrategy, ReentrancyGuard {
         governance = _governance;
     }
 
-    function setTimelock(address _timelock) external {
-        require(msg.sender == timelock, "!timelock");
+    function setTimelock(address _timelock) external onlyTimelock {
         timelock = _timelock;
     }
 
@@ -1724,7 +1822,7 @@ abstract contract StrategyBase is IStrategy, ReentrancyGuard {
         strategist = _strategist;
     }
 
-    function setController(address _controller) external onlyGovernance {
+    function setController(address _controller) external onlyTimelock {
         controller = _controller;
         vault = IVault(IController(_controller).vault());
         require(address(vault) != address(0), "!vault");
@@ -1769,9 +1867,7 @@ abstract contract StrategyBase is IStrategy, ReentrancyGuard {
         uint256 value,
         string memory signature,
         bytes memory data
-    ) public returns (bytes memory) {
-        require(msg.sender == timelock, "!timelock");
-
+    ) public onlyTimelock returns (bytes memory) {
         bytes memory callData;
 
         if (bytes(signature).length == 0) {
@@ -1820,7 +1916,7 @@ interface ICakeMasterChef {
 
 */
 contract StrategySushiLp is StrategyBase {
-    uint256 public blocksToReleaseCompound = 0; // disable
+    uint256 public timeToReleaseCompound = 30 minutes; // 0 to disable
 
     address public farmPool = 0x0895196562C7868C5Be92459FaE7f877ED450452;
     uint256 public poolId;
@@ -1843,8 +1939,7 @@ contract StrategySushiLp is StrategyBase {
         address _token0,
         address _token1,
         address _controller
-    ) public nonReentrant {
-        require(_initialized == false, "Strategy: Initialize must be false.");
+    ) public nonReentrant initializer {
         initialize(_baseToken, _farmingToken, _controller, _targetCompound, _targetProfit);
         farmPool = _farmPool;
         poolId = _poolId;
@@ -1860,7 +1955,6 @@ contract StrategySushiLp is StrategyBase {
             IERC20(token1).safeApprove(address(unirouter), type(uint256).max);
             IERC20(token1).safeApprove(address(firebirdRouter), type(uint256).max);
         }
-        _initialized = true;
     }
 
     function getName() public pure override returns (string memory) {
@@ -1923,7 +2017,7 @@ contract StrategySushiLp is StrategyBase {
         if (_after > 0) {
             if (_after > _before && vaultMaster.isStrategy(address(this))) {
                 uint256 _compound = _after.sub(_before);
-                vault.addNewCompound(_compound, blocksToReleaseCompound);
+                vault.addNewCompound(_compound, timeToReleaseCompound);
             }
             _deposit();
         }
@@ -1989,8 +2083,8 @@ contract StrategySushiLp is StrategyBase {
         IERC20(baseToken).safeTransfer(address(vault), baseBal);
     }
 
-    function setBlocksToReleaseCompound(uint256 _blocks) external onlyStrategist {
-        blocksToReleaseCompound = _blocks;
+    function setTimeToReleaseCompound(uint256 _timeSeconds) external onlyStrategist {
+        timeToReleaseCompound = _timeSeconds;
     }
 
     function setFarmPoolContract(address _farmPool) external onlyStrategist {

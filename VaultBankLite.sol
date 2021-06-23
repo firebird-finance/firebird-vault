@@ -709,7 +709,6 @@ interface IVault {
     function deposit(uint256 _amount, uint256 _min_mint_amount) external returns (uint256);
 
     function depositFor(
-        address _account,
         address _to,
         uint256 _amount,
         uint256 _min_mint_amount
@@ -793,17 +792,7 @@ contract VaultBankLite is ContextUpgradeSafe, ReentrancyGuard {
         IERC20(_vault.token()).safeTransferFrom(msg.sender, address(this), _amount);
         IERC20(_vault.token()).safeIncreaseAllowance(address(_vault), _amount);
 
-        uint256 _mint_amount = _depositToVault(_vault, _amount, _min_mint_amount);
-
-        IERC20(address(_vault)).safeTransfer(msg.sender, _mint_amount);
-    }
-
-    function _depositToVault(
-        IVault _vault,
-        uint256 _amount,
-        uint256 _min_mint_amount
-    ) internal returns (uint256 _mint_amount) {
-        _mint_amount = _vault.deposit(_amount, _min_mint_amount);
+        _vault.depositFor(msg.sender, _amount, _min_mint_amount);
     }
 
     // No rebalance implementation for lower fees and faster swaps

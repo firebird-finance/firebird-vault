@@ -842,7 +842,6 @@ interface IVault {
     function deposit(uint256 _amount, uint256 _min_mint_amount) external returns (uint256);
 
     function depositFor(
-        address _account,
         address _to,
         uint256 _amount,
         uint256 _min_mint_amount
@@ -937,21 +936,22 @@ abstract contract VaultBase is ERC20UpgradeSafe, IVault {
     using Address for address;
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
-    uint256 public constant BONE = 10**18;
 
+    uint256 constant BONE = 10**18;
     IERC20 public basedToken;
 
-    uint256 public earnLowerlimit = 1; // minimum to invest
-    uint256 public depositLimit = 0; // limit for each deposit (set 0 to disable)
-    uint256 private totalDepositCap = 0; // initial cap (set 0 to disable)
+    uint256 public earnLowerlimit; // minimum to invest
+    uint256 public depositLimit; // limit for each deposit (set 0 to disable)
+    uint256 private totalDepositCap; // initial cap (set 0 to disable)
 
+    address public timelock = address(0xe59511c0eF42FB3C419Ac2651406b7b8822328E1);
     address public governance;
     address public controller;
 
     IVaultMaster vaultMaster;
     mapping(address => address) public converterMap; // non-core token => converter
 
-    bool public acceptContractDepositor = false;
+    bool public acceptContractDepositor;
     mapping(address => bool) public whitelistedContract;
     bool private _mutex;
 
@@ -959,10 +959,13 @@ abstract contract VaultBase is ERC20UpgradeSafe, IVault {
     bytes32 private _minterBlock;
 
     uint256 public totalPendingCompound;
-    uint256 public startReleasingCompoundBlk;
-    uint256 public endReleasingCompoundBlk;
+    uint256 public startReleasingCompoundTime;
+    uint256 public endReleasingCompoundTime;
 
-    bool public override openHarvest = true;
+    //earnBefore: avoid deposit fee in farm, not to use with farm has bonus received when deposit
+    //!earnBefore: avoid bonus received when deposit to farm, not to use with farm has deposit fee
+    bool public earnBefore;
+    bool public override openHarvest;
     uint256 public lastHarvestAllTimeStamp;
 
     bool public depositPaused;
@@ -979,9 +982,13 @@ abstract contract VaultBase is ERC20UpgradeSafe, IVault {
         __ERC20_init(_name, _symbol);
         _setupDecimals(IDecimals(address(_basedToken)).decimals());
 
+        earnLowerlimit = 1;
+        openHarvest = true;
+
         basedToken = _basedToken;
         vaultMaster = _vaultMaster;
         governance = msg.sender;
+        timelock = address(0xe59511c0eF42FB3C419Ac2651406b7b8822328E1);
     }
 
     /**
@@ -1006,6 +1013,11 @@ abstract contract VaultBase is ERC20UpgradeSafe, IVault {
         _;
     }
 
+    modifier onlyTimelock() {
+        require(msg.sender == timelock, "!timelock");
+        _;
+    }
+
     function setAcceptContractDepositor(bool _acceptContractDepositor) external onlyGovernance {
         acceptContractDepositor = _acceptContractDepositor;
     }
@@ -1022,7 +1034,7 @@ abstract contract VaultBase is ERC20UpgradeSafe, IVault {
         depositPaused = _depositPaused;
     }
 
-    function setPauseWithdraw(bool _withdrawPaused) external virtual onlyGovernance {
+    function setPauseWithdraw(bool _withdrawPaused) external onlyGovernance {
         withdrawPaused = _withdrawPaused;
     }
 
@@ -1038,22 +1050,22 @@ abstract contract VaultBase is ERC20UpgradeSafe, IVault {
         return _input == address(basedToken);
     }
 
-    function addNewCompound(uint256 _newCompound, uint256 _blocksToReleaseCompound) external override {
+    function addNewCompound(uint256 _newCompound, uint256 _timeToReleaseCompound) external override {
         require(msg.sender == governance || vaultMaster.isStrategy(msg.sender), "!authorized");
-        if (_blocksToReleaseCompound == 0) {
+        if (_timeToReleaseCompound == 0) {
             totalPendingCompound = 0;
-            startReleasingCompoundBlk = 0;
-            endReleasingCompoundBlk = 0;
+            startReleasingCompoundTime = 0;
+            endReleasingCompoundTime = 0;
         } else {
             totalPendingCompound = pendingCompound().add(_newCompound);
-            startReleasingCompoundBlk = block.number;
-            endReleasingCompoundBlk = block.number.add(_blocksToReleaseCompound);
+            startReleasingCompoundTime = block.timestamp;
+            endReleasingCompoundTime = block.timestamp.add(_timeToReleaseCompound);
         }
     }
 
     function pendingCompound() public view returns (uint256) {
-        if (totalPendingCompound == 0 || endReleasingCompoundBlk <= block.number) return 0;
-        return totalPendingCompound.mul(endReleasingCompoundBlk.sub(block.number)).div(endReleasingCompoundBlk.sub(startReleasingCompoundBlk).add(1));
+        if (totalPendingCompound == 0 || endReleasingCompoundTime <= block.timestamp) return 0;
+        return totalPendingCompound.mul(endReleasingCompoundTime.sub(block.timestamp)).div(endReleasingCompoundTime.sub(startReleasingCompoundTime).add(1));
     }
 
     function balance() public view override returns (uint256 _balance) {
@@ -1062,6 +1074,10 @@ abstract contract VaultBase is ERC20UpgradeSafe, IVault {
 
     function setGovernance(address _governance) external onlyGovernance {
         governance = _governance;
+    }
+
+    function setTimelock(address _timelock) external onlyTimelock {
+        timelock = _timelock;
     }
 
     function setController(address _controller) external onlyGovernance {
@@ -1141,15 +1157,14 @@ abstract contract VaultBase is ERC20UpgradeSafe, IVault {
     }
 
     function deposit(uint256 _amount, uint256 _min_mint_amount) external override returns (uint256) {
-        return depositFor(msg.sender, msg.sender, _amount, _min_mint_amount);
+        return depositFor(msg.sender, _amount, _min_mint_amount);
     }
 
     function depositFor(
-        address _account,
         address _to,
         uint256 _amount,
         uint256 _min_mint_amount
-    ) public override checkContract(_account) checkContract(msg.sender) _non_reentrant_ returns (uint256 _mint_amount) {
+    ) public override checkContract(msg.sender) _non_reentrant_ returns (uint256 _mint_amount) {
         require(!depositPaused, "deposit paused");
         if (controller != address(0)) {
             IController(controller).beforeDeposit();
@@ -1157,19 +1172,19 @@ abstract contract VaultBase is ERC20UpgradeSafe, IVault {
 
         uint256 _pool = balance();
         require(totalDepositCap == 0 || _pool <= totalDepositCap, ">totalDepositCap");
-        _mint_amount = _deposit(_account, _to, _pool, _amount);
+        _mint_amount = _deposit(_to, _pool, _amount);
         require(_mint_amount >= _min_mint_amount, "slippage");
     }
 
-    //this function avoid deposit fee in farm, not to use with farm has bonus received when deposit
     function _deposit(
-        address _account,
         address _mintTo,
         uint256 _pool,
         uint256 _amount
     ) internal returns (uint256 _shares) {
-        basedToken.safeTransferFrom(_account, address(this), _amount);
-        earn();
+        basedToken.safeTransferFrom(msg.sender, address(this), _amount);
+        if (earnBefore) {
+            earn();
+        }
         uint256 _after = balance();
         _amount = _after.sub(_pool); // additional check for deflationary tokens
         require(depositLimit == 0 || _amount <= depositLimit, ">depositLimit");
@@ -1183,6 +1198,9 @@ abstract contract VaultBase is ERC20UpgradeSafe, IVault {
 
         _minterBlock = keccak256(abi.encodePacked(tx.origin, block.number));
         _mint(_mintTo, _shares);
+        if (!earnBefore) {
+            earn();
+        }
     }
 
     // Used to swap any borrowed reserve over the debt limit to liquidate to 'token'
@@ -1216,7 +1234,7 @@ abstract contract VaultBase is ERC20UpgradeSafe, IVault {
         address _account,
         uint256 _shares,
         uint256 _min_output_amount
-    ) public override _non_reentrant_ returns (uint256 _output_amount) {
+    ) public override _non_reentrant_ checkContract(msg.sender) returns (uint256 _output_amount) {
         require(!withdrawPaused, "withdraw paused");
         // Check that no mint has been made in the same block from the same EOA
         require(keccak256(abi.encodePacked(tx.origin, block.number)) != _minterBlock, "REENTR MINT-BURN");
@@ -1284,9 +1302,7 @@ contract Vault is VaultBase {
         uint256 value,
         string memory signature,
         bytes memory data
-    ) public _non_reentrant_ returns (bytes memory) {
-        require(msg.sender == governance, "!governance");
-
+    ) public onlyTimelock returns (bytes memory) {
         bytes memory callData;
 
         if (bytes(signature).length == 0) {

@@ -611,7 +611,6 @@ interface IVault {
     function deposit(uint256 _amount, uint256 _min_mint_amount) external returns (uint256);
 
     function depositFor(
-        address _account,
         address _to,
         uint256 _amount,
         uint256 _min_mint_amount
@@ -674,6 +673,7 @@ contract VaultController is IController, ReentrancyGuard {
 
     address public governance;
     address public strategist;
+    address public timelock = address(0xe59511c0eF42FB3C419Ac2651406b7b8822328E1);
 
     struct StrategyInfo {
         address strategy;
@@ -700,6 +700,8 @@ contract VaultController is IController, ReentrancyGuard {
     uint256 public withdrawalFee = 0; // over 10000
     bool internal _initialized = false;
 
+    event ExecuteTransaction(address indexed target, uint256 value, string signature, bytes data);
+
     function initialize(IVault _vault, string memory _name) public {
         require(_initialized == false, "Strategy: Initialize must be false.");
         require(address(_vault) != address(0), "!_vault");
@@ -708,7 +710,13 @@ contract VaultController is IController, ReentrancyGuard {
         governance = msg.sender;
         strategist = msg.sender;
         name = _name;
+        timelock = address(0xe59511c0eF42FB3C419Ac2651406b7b8822328E1);
         _initialized = true;
+    }
+
+    modifier onlyTimelock() {
+        require(msg.sender == timelock, "!timelock");
+        _;
     }
 
     modifier onlyGovernance() {
@@ -726,7 +734,7 @@ contract VaultController is IController, ReentrancyGuard {
         _;
     }
 
-    function setVault(IVault _vault) external onlyGovernance {
+    function setVault(IVault _vault) external onlyTimelock {
         require(address(_vault) != address(0), "!_vault");
         vault = _vault;
         want = vault.token();
@@ -734,6 +742,10 @@ contract VaultController is IController, ReentrancyGuard {
 
     function setName(string memory _name) external onlyGovernance {
         name = _name;
+    }
+
+    function setTimelock(address _timelock) external onlyTimelock {
+        timelock = _timelock;
     }
 
     function setGovernance(address _governance) external onlyGovernance {
@@ -753,7 +765,7 @@ contract VaultController is IController, ReentrancyGuard {
     }
 
     function setWithdrawalFee(uint256 _withdrawalFee) external onlyGovernance {
-        require(_withdrawalFee < 10000, "withdrawalFee too high");
+        require(_withdrawalFee <= 100, "withdrawalFee over 1%");
         withdrawalFee = _withdrawalFee;
     }
 
@@ -879,7 +891,7 @@ contract VaultController is IController, ReentrancyGuard {
         IStrategy _srcStrat,
         IStrategy _destStrat,
         uint256 _amount
-    ) external onlyStrategist {
+    ) external onlyTimelock {
         require(approvedStrategies[address(_destStrat)], "!approved");
         require(_srcStrat.baseToken() == want, "!_srcStrat.baseToken");
         require(_destStrat.baseToken() == want, "!_destStrat.baseToken");
@@ -911,5 +923,31 @@ contract VaultController is IController, ReentrancyGuard {
             _toWithdraw = _toWithdraw.sub(_stratBal);
         }
         return _withdrawFee;
+    }
+
+    /**
+     * @dev This is from Timelock contract, the governance should be a Timelock contract before calling this emergency function
+     */
+    function executeTransaction(
+        address target,
+        uint256 value,
+        string memory signature,
+        bytes memory data
+    ) public onlyTimelock returns (bytes memory) {
+        bytes memory callData;
+
+        if (bytes(signature).length == 0) {
+            callData = data;
+        } else {
+            callData = abi.encodePacked(bytes4(keccak256(bytes(signature))), data);
+        }
+
+        // solium-disable-next-line security/no-call-value
+        (bool success, bytes memory returnData) = target.call{value: value}(callData);
+        require(success, string(abi.encodePacked(name, "::executeTransaction: Transaction execution reverted.")));
+
+        emit ExecuteTransaction(target, value, signature, data);
+
+        return returnData;
     }
 }

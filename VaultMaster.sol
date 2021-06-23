@@ -390,6 +390,99 @@ library SafeERC20 {
     }
 }
 
+/**
+ * @title Initializable
+ *
+ * @dev Helper contract to support initializer functions. To use it, replace
+ * the constructor with a function that has the `initializer` modifier.
+ * WARNING: Unlike constructors, initializer functions must be manually
+ * invoked. This applies both to deploying an Initializable contract, as well
+ * as extending an Initializable contract via inheritance.
+ * WARNING: When used with inheritance, manual care must be taken to not invoke
+ * a parent initializer twice, or ensure that all initializers are idempotent,
+ * because this is not dealt with automatically as with constructors.
+ */
+contract Initializable {
+    /**
+     * @dev Indicates that the contract has been initialized.
+     */
+    bool private initialized;
+
+    /**
+     * @dev Indicates that the contract is in the process of being initialized.
+     */
+    bool private initializing;
+
+    /**
+     * @dev Modifier to use in the initializer function of a contract.
+     */
+    modifier initializer() {
+        require(initializing || isConstructor() || !initialized, "Contract instance has already been initialized");
+
+        bool isTopLevelCall = !initializing;
+        if (isTopLevelCall) {
+            initializing = true;
+            initialized = true;
+        }
+
+        _;
+
+        if (isTopLevelCall) {
+            initializing = false;
+        }
+    }
+
+    /// @dev Returns true if and only if the function is running in the constructor
+    function isConstructor() private view returns (bool) {
+        // extcodesize checks the size of the code stored in an address, and
+        // address returns the current address. Since the code is still not
+        // deployed when running a constructor, any checks on its code size will
+        // yield zero, making it an effective way to detect if a contract is
+        // under construction or not.
+        address self = address(this);
+        uint256 cs;
+        assembly {
+            cs := extcodesize(self)
+        }
+        return cs == 0;
+    }
+
+    // Reserved storage space to allow for layout changes in the future.
+    uint256[50] private ______gap;
+}
+
+/*
+ * @dev Provides information about the current execution context, including the
+ * sender of the transaction and its data. While these are generally available
+ * via msg.sender and msg.data, they should not be accessed in such a direct
+ * manner, since when dealing with GSN meta-transactions the account sending and
+ * paying for execution may not be the actual sender (as far as an application
+ * is concerned).
+ *
+ * This contract is only required for intermediate, library-like contracts.
+ */
+contract ContextUpgradeSafe is Initializable {
+    // Empty internal constructor, to prevent people from mistakenly deploying
+    // an instance of this contract, which should be used via inheritance.
+
+    function __Context_init() internal initializer {
+        __Context_init_unchained();
+    }
+
+    function __Context_init_unchained() internal initializer {}
+
+    function _msgSender() internal view virtual returns (address payable) {
+        return msg.sender;
+    }
+
+    function _msgData() internal view virtual returns (bytes memory) {
+        this; // silence state mutability warning without generating bytecode - see https://github.com/ethereum/solidity/issues/2691
+        return msg.data;
+    }
+
+    uint256[50] private __gap;
+}
+
 interface IVaultMaster {
     event UpdateBank(address bank, address vault);
     event UpdateVault(address vault, bool isAdd);
@@ -421,15 +514,15 @@ interface IVaultMaster {
     function withdrawalProtectionFee() external view returns (uint256);
 }
 
-contract VaultMaster is IVaultMaster {
+contract VaultMaster is IVaultMaster, ContextUpgradeSafe {
     using SafeERC20 for IERC20;
 
     address public governance;
 
-    address public override reserveFund = 0x7Be4D5A99c903C437EC77A20CB6d0688cBB73c7f; // % profit from Value Vaults
-    address public override performanceReward = 0x7Be4D5A99c903C437EC77A20CB6d0688cBB73c7f; // set to deploy wallet at start
+    address public override reserveFund = 0xA20CA7c6705fB88847Cbf50549D7A38f4e99d32c; // % profit from Vaults
+    address public override performanceReward = 0xA20CA7c6705fB88847Cbf50549D7A38f4e99d32c; // set to deploy wallet at start
 
-    uint256 public override performanceFee = 500; // 5%
+    uint256 public override performanceFee = 450; // 4.5%
     uint256 public override gasFee = 0; // 0% at start and can be set by governance decision
     uint256 public override withdrawalProtectionFee = 0; // % of withdrawal go back to vault (for auto-compounding) to protect withdrawals
 
@@ -441,8 +534,11 @@ contract VaultMaster is IVaultMaster {
 
     mapping(address => uint256) public override slippage; // over 10000
 
-    constructor() public {
+    function initialize() public initializer {
         governance = msg.sender;
+        reserveFund = 0xA20CA7c6705fB88847Cbf50549D7A38f4e99d32c;
+        performanceReward = 0xA20CA7c6705fB88847Cbf50549D7A38f4e99d32c;
+        performanceFee = 450;
     }
 
     modifier onlyGovernance() {
