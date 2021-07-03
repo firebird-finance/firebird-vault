@@ -488,6 +488,7 @@ interface IVaultMaster {
     event UpdateVault(address vault, bool isAdd);
     event UpdateController(address controller, bool isAdd);
     event UpdateStrategy(address strategy, bool isAdd);
+    event LogNewGovernance(address governance);
 
     function bankMaster() external view returns (address);
 
@@ -548,9 +549,10 @@ contract VaultMaster is IVaultMaster, ContextUpgradeSafe {
 
     function setGovernance(address _governance) external onlyGovernance {
         governance = _governance;
+        emit LogNewGovernance(governance);
     }
 
-    function setBankMaster(address _bankMaster) public onlyGovernance {
+    function setBankMaster(address _bankMaster) external onlyGovernance {
         bankMaster = _bankMaster;
         emit UpdateBank(_bankMaster, address(0));
     }
@@ -632,25 +634,25 @@ contract VaultMaster is IVaultMaster, ContextUpgradeSafe {
         }
     }
 
-    function setReserveFund(address _reserveFund) public onlyGovernance {
+    function setReserveFund(address _reserveFund) external onlyGovernance {
         reserveFund = _reserveFund;
     }
 
-    function setPerformanceReward(address _performanceReward) public onlyGovernance {
+    function setPerformanceReward(address _performanceReward) external onlyGovernance {
         performanceReward = _performanceReward;
     }
 
-    function setPerformanceFee(uint256 _performanceFee) public onlyGovernance {
+    function setPerformanceFee(uint256 _performanceFee) external onlyGovernance {
         require(_performanceFee <= 3000, "_performanceFee over 30%");
         performanceFee = _performanceFee;
     }
 
-    function setGasFee(uint256 _gasFee) public onlyGovernance {
+    function setGasFee(uint256 _gasFee) external onlyGovernance {
         require(_gasFee <= 500, "_gasFee over 5%");
         gasFee = _gasFee;
     }
 
-    function setWithdrawalProtectionFee(uint256 _withdrawalProtectionFee) public onlyGovernance {
+    function setWithdrawalProtectionFee(uint256 _withdrawalProtectionFee) external onlyGovernance {
         require(_withdrawalProtectionFee <= 100, "_withdrawalProtectionFee over 1%");
         withdrawalProtectionFee = _withdrawalProtectionFee;
     }

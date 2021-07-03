@@ -193,7 +193,7 @@ contract Timelock {
 
     receive() external payable { }
 
-    function setDelay(uint delay_) public {
+    function setDelay(uint delay_) external {
         require(msg.sender == address(this), "Timelock::setDelay: Call must come from Timelock.");
         require(delay_ >= MINIMUM_DELAY, "Timelock::setDelay: Delay must exceed minimum delay.");
         require(delay_ <= MAXIMUM_DELAY, "Timelock::setDelay: Delay must not exceed maximum delay.");
@@ -202,14 +202,14 @@ contract Timelock {
         emit NewDelay(delay);
     }
 
-    function setOperator(address operator_) public {
+    function setOperator(address operator_) external {
         require(msg.sender == address(this), "Timelock::setDelay: Call must come from Timelock.");
         operator = operator_;
 
         emit NewOperator(operator);
     }
 
-    function acceptAdmin() public {
+    function acceptAdmin() external {
         require(msg.sender == pendingAdmin, "Timelock::acceptAdmin: Call must come from pendingAdmin.");
         admin = msg.sender;
         pendingAdmin = address(0);
@@ -217,7 +217,7 @@ contract Timelock {
         emit NewAdmin(admin);
     }
 
-    function setPendingAdmin(address pendingAdmin_) public {
+    function setPendingAdmin(address pendingAdmin_) external {
         // allows one time setting of admin for deployment purposes
         if (admin_initialized) {
             require(msg.sender == address(this), "Timelock::setPendingAdmin: Call must come from Timelock.");
@@ -230,7 +230,7 @@ contract Timelock {
         emit NewPendingAdmin(pendingAdmin);
     }
 
-    function queueTransaction(address target, uint value, string memory signature, bytes memory data, uint eta) public returns (bytes32) {
+    function queueTransaction(address target, uint value, string memory signature, bytes memory data, uint eta) external returns (bytes32) {
         require(msg.sender == admin || msg.sender == operator, "Timelock::queueTransaction: Call must come from admin or operator.");
         require(eta >= getBlockTimestamp().add(delay), "Timelock::queueTransaction: Estimated execution block must satisfy delay.");
 
@@ -241,7 +241,7 @@ contract Timelock {
         return txHash;
     }
 
-    function cancelTransaction(address target, uint value, string memory signature, bytes memory data, uint eta) public {
+    function cancelTransaction(address target, uint value, string memory signature, bytes memory data, uint eta) external {
         require(msg.sender == admin, "Timelock::cancelTransaction: Call must come from admin.");
 
         bytes32 txHash = keccak256(abi.encode(target, value, signature, data, eta));
@@ -250,7 +250,7 @@ contract Timelock {
         emit CancelTransaction(txHash, target, value, signature, data, eta);
     }
 
-    function executeTransaction(address target, uint value, string memory signature, bytes memory data, uint eta) public payable returns (bytes memory) {
+    function executeTransaction(address target, uint value, string memory signature, bytes memory data, uint eta) external payable returns (bytes memory) {
         require(msg.sender == admin, "Timelock::executeTransaction: Call must come from admin.");
 
         bytes32 txHash = keccak256(abi.encode(target, value, signature, data, eta));

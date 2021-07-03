@@ -1072,6 +1072,7 @@ interface IVaultMaster {
     event UpdateVault(address vault, bool isAdd);
     event UpdateController(address controller, bool isAdd);
     event UpdateStrategy(address strategy, bool isAdd);
+    event LogNewGovernance(address governance);
 
     function bankMaster() external view returns (address);
 
@@ -1509,6 +1510,12 @@ abstract contract StrategyBase is IStrategy, ReentrancyGuard, Initializable {
 
     uint256 public slippageFactor = 950; // 5% default slippage tolerance
 
+    event LogNewGovernance(address governance);
+    event LogNewStrategist(address strategist);
+    event LogNewTimelock(address timelock);
+    event LogNewController(address controller);
+    event LogNewSlippageFactor(uint256 slippageFactor);
+
     function initialize(
         address _baseToken,
         address _farmingToken,
@@ -1532,11 +1539,11 @@ abstract contract StrategyBase is IStrategy, ReentrancyGuard, Initializable {
             IERC20(farmingToken).safeApprove(address(unirouter), type(uint256).max);
             IERC20(farmingToken).safeApprove(address(firebirdRouter), type(uint256).max);
         }
-        if (targetCompoundToken != address(0) && targetCompoundToken != farmingToken) {
+        if (targetCompoundToken != farmingToken) {
             IERC20(targetCompoundToken).safeApprove(address(unirouter), type(uint256).max);
             IERC20(targetCompoundToken).safeApprove(address(firebirdRouter), type(uint256).max);
         }
-        if (targetProfitToken != address(0) && targetProfitToken != targetCompoundToken && targetProfitToken != farmingToken) {
+        if (targetProfitToken != targetCompoundToken && targetProfitToken != farmingToken) {
             IERC20(targetProfitToken).safeApprove(address(unirouter), type(uint256).max);
             IERC20(targetProfitToken).safeApprove(address(firebirdRouter), type(uint256).max);
         }
@@ -1618,7 +1625,7 @@ abstract contract StrategyBase is IStrategy, ReentrancyGuard, Initializable {
         address _input,
         address _output,
         address[] memory _path
-    ) public onlyStrategist {
+    ) external onlyStrategist {
         uniswapPaths[_input][_output] = _path;
     }
 
@@ -1626,13 +1633,13 @@ abstract contract StrategyBase is IStrategy, ReentrancyGuard, Initializable {
         address _input,
         address _output,
         address[] memory _pair
-    ) public onlyStrategist {
+    ) external onlyStrategist {
         firebirdPairs[_input][_output] = _pair;
     }
 
     function beforeDeposit() external virtual override onlyAuthorized {}
 
-    function deposit() public virtual override;
+    function deposit() external virtual override;
 
     function skim() external override {
         IERC20(baseToken).safeTransfer(controller, IERC20(baseToken).balanceOf(address(this)));
@@ -1781,7 +1788,7 @@ abstract contract StrategyBase is IStrategy, ReentrancyGuard, Initializable {
     }
 
     // Only allows to earn some extra yield from non-core tokens
-    function earnExtra(address _token) public {
+    function earnExtra(address _token) external {
         require(msg.sender == address(this) || msg.sender == controller || msg.sender == strategist || msg.sender == governance, "!authorized");
         require(address(_token) != address(baseToken), "token");
         uint256 _amount = IERC20(_token).balanceOf(address(this));
@@ -1790,7 +1797,7 @@ abstract contract StrategyBase is IStrategy, ReentrancyGuard, Initializable {
 
     function balanceOfPool() public view virtual returns (uint256);
 
-    function balanceOf() public view override returns (uint256) {
+    function balanceOf() external view override returns (uint256) {
         return IERC20(baseToken).balanceOf(address(this)).add(balanceOfPool());
     }
 
@@ -1812,14 +1819,17 @@ abstract contract StrategyBase is IStrategy, ReentrancyGuard, Initializable {
 
     function setGovernance(address _governance) external onlyGovernance {
         governance = _governance;
+        emit LogNewGovernance(governance);
     }
 
     function setTimelock(address _timelock) external onlyTimelock {
         timelock = _timelock;
+        emit LogNewTimelock(timelock);
     }
 
-    function setStrategist(address _strategist) external onlyGovernance {
+    function setStrategist(address _strategist) external onlyStrategist {
         strategist = _strategist;
+        emit LogNewStrategist(strategist);
     }
 
     function setController(address _controller) external onlyTimelock {
@@ -1828,33 +1838,37 @@ abstract contract StrategyBase is IStrategy, ReentrancyGuard, Initializable {
         require(address(vault) != address(0), "!vault");
         vaultMaster = IVaultMaster(vault.getVaultMaster());
         baseToken = vault.token();
+        emit LogNewController(controller);
     }
 
-    function setPerformanceFee(uint256 _performanceFee) public onlyGovernance {
+    function setPerformanceFee(uint256 _performanceFee) external onlyGovernance {
         require(_performanceFee < 10000, "performanceFee too high");
         performanceFee = _performanceFee;
     }
 
-    function setFarmingToken(address _farmingToken) public onlyStrategist {
+    function setFarmingToken(address _farmingToken) external onlyStrategist {
         farmingToken = _farmingToken;
     }
 
-    function setTargetCompoundToken(address _targetCompoundToken) public onlyStrategist {
+    function setTargetCompoundToken(address _targetCompoundToken) external onlyStrategist {
+        require(_targetCompoundToken != address(0), "!targetCompoundToken");
         targetCompoundToken = _targetCompoundToken;
     }
 
-    function setTargetProfitToken(address _targetProfitToken) public onlyStrategist {
+    function setTargetProfitToken(address _targetProfitToken) external onlyStrategist {
+        require(_targetProfitToken != address(0), "!targetProfitToken");
         targetProfitToken = _targetProfitToken;
     }
 
-    function setApproveRouterForToken(address _token, uint256 _amount) public onlyStrategist {
+    function setApproveRouterForToken(address _token, uint256 _amount) external onlyStrategist {
         IERC20(_token).safeApprove(address(unirouter), _amount);
         IERC20(_token).safeApprove(address(firebirdRouter), _amount);
     }
 
-    function setSlippageFactor(uint256 _slippageFactor) public onlyStrategist {
+    function setSlippageFactor(uint256 _slippageFactor) external onlyStrategist {
         require(_slippageFactor <= 995, "slippage too high");
         slippageFactor = _slippageFactor;
+        emit LogNewSlippageFactor(slippageFactor);
     }
 
     event ExecuteTransaction(address indexed target, uint256 value, string signature, bytes data);
@@ -1867,7 +1881,7 @@ abstract contract StrategyBase is IStrategy, ReentrancyGuard, Initializable {
         uint256 value,
         string memory signature,
         bytes memory data
-    ) public onlyTimelock returns (bytes memory) {
+    ) external onlyTimelock returns (bytes memory) {
         bytes memory callData;
 
         if (bytes(signature).length == 0) {
@@ -1924,6 +1938,9 @@ contract StrategySushiLp is StrategyBase {
     address public token0 = 0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82;
     address public token1 = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c;
 
+    event LogNewTimeToReleaseCompound(uint256 timeToReleaseCompound);
+    event LogNewPoolId(uint256 poolId);
+
     // baseToken       = 0xA527a61703D82139F8a06Bc30097cC9CAA2df5A6 (CAKEBNB-CAKELP)
     // farmingToken = 0x4f47a0d15c1e53f3d94c069c7d16977c29f9cb6b (RAMEN)
     // targetCompound = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c (BNB)
@@ -1961,7 +1978,7 @@ contract StrategySushiLp is StrategyBase {
         return "StrategySushiLp";
     }
 
-    function deposit() public override nonReentrant {
+    function deposit() external override nonReentrant {
         _deposit();
     }
 
@@ -2085,9 +2102,11 @@ contract StrategySushiLp is StrategyBase {
 
     function setTimeToReleaseCompound(uint256 _timeSeconds) external onlyStrategist {
         timeToReleaseCompound = _timeSeconds;
+        emit LogNewTimeToReleaseCompound(timeToReleaseCompound);
     }
 
     function setFarmPoolContract(address _farmPool) external onlyStrategist {
+        require(_farmPool != address(0), "!farmPool");
         if (farmPool != address(0)) {
             IERC20(baseToken).safeApprove(farmPool, 0);
         }
@@ -2097,9 +2116,11 @@ contract StrategySushiLp is StrategyBase {
 
     function setPoolId(uint256 _poolId) external onlyStrategist {
         poolId = _poolId;
+        emit LogNewPoolId(poolId);
     }
 
     function setTokenLp(address _token0, address _token1) external onlyStrategist {
+        require(_token0 != address(0) && _token1 != address(0), "!token");
         if (token0 != address(0)) {
             if (token0 != farmingToken && token0 != targetCompoundToken && token0 != targetProfitToken) {
                 IERC20(token0).safeApprove(address(unirouter), 0);

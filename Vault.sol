@@ -806,10 +806,6 @@ library SafeERC20 {
     }
 }
 
-interface Converter {
-    function convert(address) external returns (uint256);
-}
-
 interface IVault {
     function cap() external view returns (uint256);
 
@@ -865,6 +861,7 @@ interface IVaultMaster {
     event UpdateVault(address vault, bool isAdd);
     event UpdateController(address controller, bool isAdd);
     event UpdateStrategy(address strategy, bool isAdd);
+    event LogNewGovernance(address governance);
 
     function bankMaster() external view returns (address);
 
@@ -949,7 +946,6 @@ abstract contract VaultBase is ERC20UpgradeSafe, IVault {
     address public controller;
 
     IVaultMaster vaultMaster;
-    mapping(address => address) public converterMap; // non-core token => converter
 
     bool public acceptContractDepositor;
     mapping(address => bool) public whitelistedContract;
@@ -970,6 +966,9 @@ abstract contract VaultBase is ERC20UpgradeSafe, IVault {
 
     bool public depositPaused;
     bool public withdrawPaused;
+
+    event LogNewGovernance(address governance);
+    event LogNewTimelock(address timelock);
 
     // name: Vault:BUSDWBNB
     //symbol: vaultBUSDWBNB
@@ -1074,19 +1073,17 @@ abstract contract VaultBase is ERC20UpgradeSafe, IVault {
 
     function setGovernance(address _governance) external onlyGovernance {
         governance = _governance;
+        emit LogNewGovernance(governance);
     }
 
     function setTimelock(address _timelock) external onlyTimelock {
         timelock = _timelock;
+        emit LogNewTimelock(timelock);
     }
 
     function setController(address _controller) external onlyGovernance {
         require(IController(_controller).want() == address(basedToken), "!token");
         controller = _controller;
-    }
-
-    function setConverterMap(address _token, address _converter) external onlyGovernance {
-        converterMap[_token] = _converter;
     }
 
     function setVaultMaster(IVaultMaster _vaultMaster) external onlyGovernance {
@@ -1126,17 +1123,6 @@ abstract contract VaultBase is ERC20UpgradeSafe, IVault {
                 }
             }
         }
-    }
-
-    // Only allows to earn some extra yield from non-core tokens
-    function earnExtra(address _token) external onlyGovernance {
-        require(converterMap[_token] != address(0), "!converter");
-        require(address(_token) != address(basedToken), "token");
-        require(address(_token) != address(this), "share");
-        uint256 _amount = IERC20(_token).balanceOf(address(this));
-        address _converter = converterMap[_token];
-        IERC20(_token).safeTransfer(_converter, _amount);
-        Converter(_converter).convert(_token);
     }
 
     function withdraw_fee(uint256 _shares) public view override returns (uint256) {
@@ -1302,7 +1288,7 @@ contract Vault is VaultBase {
         uint256 value,
         string memory signature,
         bytes memory data
-    ) public onlyTimelock returns (bytes memory) {
+    ) external onlyTimelock returns (bytes memory) {
         bytes memory callData;
 
         if (bytes(signature).length == 0) {
