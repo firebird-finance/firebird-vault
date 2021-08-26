@@ -1033,7 +1033,7 @@ abstract contract VaultBase is ERC20UpgradeSafe, IVault {
         depositPaused = _depositPaused;
     }
 
-    function setPauseWithdraw(bool _withdrawPaused) external onlyGovernance {
+    function setPauseWithdraw(bool _withdrawPaused) external onlyTimelock {
         withdrawPaused = _withdrawPaused;
     }
 
